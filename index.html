@@ -1,0 +1,1918 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MAPTAG — 3D Satellite Globe</title>
+
+    <!-- MapLibre GL JS (Supports True 3D Globe Projection + Atmosphere + Raster Satellite Tiles) -->
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.3.0/dist/maplibre-gl.css" crossorigin="anonymous">
+    <script src="https://unpkg.com/maplibre-gl@5.3.0/dist/maplibre-gl.js" crossorigin="anonymous"></script>
+
+    <style>
+        /* =====================================================================
+           1. RESET & FULL-VIEWPORT 3D SATELLITE GLOBE CONTAINER
+           ===================================================================== */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #020617;
+            color: #f8fafc;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        #map {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            background: radial-gradient(circle at center, #091326 0%, #020617 100%);
+        }
+
+        /* Subtle deep-space starfield behind the 3D globe */
+        #starfield {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        /* Tidy MapLibre attribution so it stays unobtrusive */
+        .maplibregl-ctrl-bottom-right {
+            opacity: 0.55;
+            transition: opacity 0.2s ease;
+        }
+        .maplibregl-ctrl-bottom-right:hover {
+            opacity: 0.95;
+        }
+        .maplibregl-ctrl-attrib {
+            background: rgba(15, 23, 42, 0.72) !important;
+            color: #94a3b8 !important;
+            border-radius: 8px 0 0 0;
+            font-size: 10px !important;
+        }
+        .maplibregl-ctrl-attrib a {
+            color: #cbd5e1 !important;
+        }
+
+        /* =====================================================================
+           2. CUSTOM 3D GLOBE MARKERS (USER PIN & ACTUAL LOCATION PIN)
+           ===================================================================== */
+        .globe-pin {
+            position: relative;
+            width: 26px;
+            height: 26px;
+            cursor: pointer;
+            transform: translate(0, 0);
+        }
+
+        .globe-pin-pulse {
+            position: absolute;
+            inset: -8px;
+            border-radius: 50%;
+            animation: pinPulse 2s infinite ease-out;
+        }
+
+        .globe-pin-core {
+            position: absolute;
+            inset: 3px;
+            border-radius: 50%;
+            border: 3px solid #ffffff;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.65);
+        }
+
+        .globe-pin.guess .globe-pin-pulse {
+            background: rgba(56, 189, 248, 0.38);
+        }
+        .globe-pin.guess .globe-pin-core {
+            background: #0ea5e9;
+        }
+
+        .globe-pin.actual .globe-pin-pulse {
+            background: rgba(16, 185, 129, 0.42);
+        }
+        .globe-pin.actual .globe-pin-core {
+            background: #10b981;
+        }
+
+        .globe-pin-tag {
+            position: absolute;
+            bottom: 32px;
+            left: 50%;
+            transform: translateX(-50%);
+            white-space: nowrap;
+            padding: 4px 10px;
+            border-radius: 8px;
+            background: rgba(15, 23, 42, 0.92);
+            color: #ffffff;
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 0.02em;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
+            pointer-events: none;
+        }
+
+        .globe-pin.guess .globe-pin-tag {
+            border: 1px solid #38bdf8;
+        }
+
+        .globe-pin.actual .globe-pin-tag {
+            border: 1px solid #10b981;
+        }
+
+        @keyframes pinPulse {
+            0% { transform: scale(0.75); opacity: 0.95; }
+            100% { transform: scale(1.9); opacity: 0; }
+        }
+
+        /* =====================================================================
+           3. TITLE OVERLAY (FLOATING OVER ROTATING 3D SATELLITE EARTH)
+           ===================================================================== */
+        #title-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 20;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            background: radial-gradient(circle at center, rgba(2, 6, 23, 0.18) 0%, rgba(2, 6, 23, 0.68) 100%);
+        }
+
+        .title-card {
+            width: 100%;
+            max-width: 440px;
+            padding: 36px 32px;
+            border-radius: 28px;
+            background: rgba(15, 23, 42, 0.78);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(148, 163, 184, 0.24);
+            box-shadow: 0 28px 70px rgba(0, 0, 0, 0.75);
+            text-align: center;
+        }
+
+        .brand-mark {
+            width: 56px;
+            height: 56px;
+            margin: 0 auto 16px;
+            border-radius: 18px;
+            background: linear-gradient(135deg, #38bdf8 0%, #10b981 100%);
+            color: #020617;
+            font-size: 28px;
+            font-weight: 900;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 12px 28px rgba(16, 185, 129, 0.35);
+        }
+
+        .title-card h1 {
+            font-size: 40px;
+            font-weight: 900;
+            letter-spacing: -0.04em;
+            color: #ffffff;
+        }
+
+        .title-card p {
+            font-size: 14px;
+            color: #cbd5e1;
+            margin-top: 8px;
+            line-height: 1.5;
+        }
+
+        .primary-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            margin-top: 26px;
+            padding: 16px 28px;
+            border: none;
+            border-radius: 16px;
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: #022c22;
+            font-size: 16px;
+            font-weight: 900;
+            letter-spacing: 0.04em;
+            cursor: pointer;
+            box-shadow: 0 12px 30px rgba(16, 185, 129, 0.4);
+            transition: transform 0.14s ease, filter 0.14s ease;
+        }
+
+        .primary-btn:hover {
+            filter: brightness(1.08);
+            transform: translateY(-1px);
+        }
+
+        .primary-btn:active {
+            transform: scale(0.98);
+        }
+
+        /* =====================================================================
+           4. MINIMAL IN-GAME HUD & PLACE PROMPT
+           ===================================================================== */
+        #hud-layer {
+            position: fixed;
+            inset: 0;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        .top-bar {
+            position: fixed;
+            top: 16px;
+            left: 16px;
+            right: 16px;
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .glass-pill {
+            pointer-events: auto;
+            display: inline-flex;
+            align-items: center;
+            gap: 16px;
+            padding: 10px 18px;
+            border-radius: 16px;
+            background: rgba(15, 23, 42, 0.80);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(148, 163, 184, 0.24);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+        }
+
+        .stat-label {
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #94a3b8;
+        }
+
+        .stat-val {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 17px;
+            font-weight: 900;
+            color: #f8fafc;
+        }
+
+        .stat-val.emerald {
+            color: #34d399;
+        }
+
+        .divider {
+            width: 1px;
+            height: 26px;
+            background: rgba(148, 163, 184, 0.22);
+        }
+
+        /* Center Target Place Banner */
+        .target-banner {
+            position: fixed;
+            top: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            pointer-events: auto;
+            padding: 12px 30px;
+            border-radius: 20px;
+            background: rgba(15, 23, 42, 0.86);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid rgba(56, 189, 248, 0.38);
+            box-shadow: 0 14px 36px rgba(0, 0, 0, 0.6);
+            text-align: center;
+            min-width: 240px;
+            max-width: calc(100vw - 32px);
+        }
+
+        @media (max-width: 720px) {
+            .target-banner {
+                top: 78px;
+                padding: 10px 22px;
+            }
+        }
+
+        .target-eyebrow {
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: #38bdf8;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .diff-badge {
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 9px;
+            font-weight: 900;
+            letter-spacing: 0.08em;
+            background: rgba(56, 189, 248, 0.16);
+            border: 1px solid rgba(56, 189, 248, 0.35);
+            color: #7dd3fc;
+        }
+
+        .diff-badge.tier-1 { background: rgba(16, 185, 129, 0.18); border-color: rgba(16, 185, 129, 0.4); color: #6ee7b7; }
+        .diff-badge.tier-2 { background: rgba(56, 189, 248, 0.18); border-color: rgba(56, 189, 248, 0.4); color: #7dd3fc; }
+        .diff-badge.tier-3 { background: rgba(250, 204, 21, 0.18); border-color: rgba(250, 204, 21, 0.4); color: #fde047; }
+        .diff-badge.tier-4 { background: rgba(251, 146, 60, 0.18); border-color: rgba(251, 146, 60, 0.4); color: #fdba74; }
+        .diff-badge.tier-5 { background: rgba(244, 63, 94, 0.18); border-color: rgba(244, 63, 94, 0.4); color: #fda4af; }
+
+        .target-name {
+            font-size: 26px;
+            font-weight: 900;
+            letter-spacing: -0.02em;
+            color: #ffffff;
+            margin-top: 4px;
+            line-height: 1.2;
+        }
+
+        .target-region-sub {
+            font-size: 13px;
+            font-weight: 700;
+            color: #cbd5e1;
+            margin-top: 2px;
+        }
+
+        @media (max-width: 520px) {
+            .target-name {
+                font-size: 20px;
+            }
+            .target-region-sub {
+                font-size: 12px;
+            }
+        }
+
+        /* Right Zoom & Camera Controls */
+        .zoom-stack {
+            pointer-events: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            background: rgba(15, 23, 42, 0.80);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(148, 163, 184, 0.24);
+            border-radius: 16px;
+            padding: 6px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+        }
+
+        .icon-btn {
+            width: 38px;
+            height: 38px;
+            border: none;
+            border-radius: 11px;
+            background: transparent;
+            color: #f8fafc;
+            font-size: 18px;
+            font-weight: 800;
+            cursor: pointer;
+            transition: background 0.15s ease;
+        }
+
+        .icon-btn:hover {
+            background: rgba(148, 163, 184, 0.22);
+        }
+
+        /* Bottom Action Dock */
+        .bottom-dock {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            pointer-events: auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            max-width: 380px;
+            padding: 0 16px;
+        }
+
+        .coord-hint {
+            padding: 5px 14px;
+            border-radius: 999px;
+            background: rgba(15, 23, 42, 0.82);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 12px;
+            color: #cbd5e1;
+        }
+
+        #lock-btn {
+            width: 100%;
+            padding: 15px 24px;
+            border-radius: 16px;
+            border: 1px solid rgba(148, 163, 184, 0.25);
+            background: rgba(15, 23, 42, 0.84);
+            backdrop-filter: blur(12px);
+            color: #64748b;
+            font-size: 15px;
+            font-weight: 900;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            cursor: not-allowed;
+            transition: all 0.16s ease;
+        }
+
+        #lock-btn.ready {
+            border-color: #34d399;
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: #022c22;
+            cursor: pointer;
+            box-shadow: 0 12px 32px rgba(16, 185, 129, 0.45);
+        }
+
+        #lock-btn.ready:hover {
+            filter: brightness(1.08);
+            transform: translateY(-1px);
+        }
+
+        /* =====================================================================
+           5. ROUND RESULT CARD (FLOATING AT BOTTOM OVER SATELLITE REVEAL)
+           ===================================================================== */
+        #result-card {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 25;
+            width: calc(100% - 32px);
+            max-width: 520px;
+            padding: 22px 24px;
+            border-radius: 24px;
+            background: rgba(15, 23, 42, 0.90);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(148, 163, 184, 0.28);
+            box-shadow: 0 24px 60px rgba(0, 0, 0, 0.8);
+        }
+
+        .res-top {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .res-place {
+            font-size: 20px;
+            font-weight: 900;
+            color: #ffffff;
+        }
+
+        .res-sub {
+            font-size: 12px;
+            color: #94a3b8;
+            margin-top: 2px;
+        }
+
+        .res-score {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 24px;
+            font-weight: 900;
+            color: #34d399;
+            white-space: nowrap;
+        }
+
+        .res-bar-bg {
+            width: 100%;
+            height: 8px;
+            border-radius: 999px;
+            background: rgba(148, 163, 184, 0.18);
+            overflow: hidden;
+            margin-bottom: 14px;
+        }
+
+        .res-bar-fill {
+            height: 100%;
+            width: 0%;
+            border-radius: 999px;
+            background: linear-gradient(90deg, #38bdf8, #10b981);
+            transition: width 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        .res-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .legend-row {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            font-size: 12px;
+            color: #cbd5e1;
+        }
+
+        .dot {
+            display: inline-block;
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+
+        #next-btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 14px;
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: #022c22;
+            font-size: 14px;
+            font-weight: 900;
+            cursor: pointer;
+            box-shadow: 0 8px 24px rgba(16, 185, 129, 0.35);
+            transition: filter 0.14s ease, transform 0.14s ease;
+        }
+
+        #next-btn:hover {
+            filter: brightness(1.08);
+            transform: translateY(-1px);
+        }
+
+        /* =====================================================================
+           6. FINAL SUMMARY MODAL
+           ===================================================================== */
+        #summary-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 30;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            background: rgba(2, 6, 23, 0.78);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+
+        .summary-card {
+            width: 100%;
+            max-width: 540px;
+            padding: 32px;
+            border-radius: 28px;
+            background: rgba(15, 23, 42, 0.94);
+            border: 1px solid rgba(148, 163, 184, 0.25);
+            box-shadow: 0 28px 70px rgba(0, 0, 0, 0.85);
+            text-align: center;
+        }
+
+        .final-total {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 42px;
+            font-weight: 900;
+            color: #34d399;
+            margin: 6px 0;
+        }
+
+        .breakdown-list {
+            margin: 20px 0;
+            border-radius: 16px;
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            background: rgba(2, 6, 23, 0.55);
+            overflow: hidden;
+            text-align: left;
+        }
+
+        .breakdown-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+            font-size: 13px;
+        }
+
+        .breakdown-row:last-child {
+            border-bottom: none;
+        }
+
+        .share-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 16px;
+        }
+
+        .copy-btn {
+            width: 100%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 14px 18px;
+            border: 1px solid rgba(56, 189, 248, 0.42);
+            border-radius: 16px;
+            background: rgba(56, 189, 248, 0.14);
+            color: #bae6fd;
+            font-size: 14px;
+            font-weight: 800;
+            letter-spacing: 0.03em;
+            cursor: pointer;
+            transition: background 0.15s ease, transform 0.14s ease, border-color 0.15s ease;
+        }
+
+        .copy-btn:hover {
+            background: rgba(56, 189, 248, 0.24);
+            border-color: rgba(56, 189, 248, 0.75);
+            transform: translateY(-1px);
+        }
+
+        .copy-btn.copied {
+            background: rgba(16, 185, 129, 0.26);
+            border-color: #34d399;
+            color: #ecfdf5;
+        }
+    </style>
+</head>
+<body>
+    <!-- Deep-Space Starfield & 3D Satellite Earth Container -->
+    <canvas id="starfield"></canvas>
+    <div id="map"></div>
+
+    <!-- 1. Clean Daily Title Screen Overlay -->
+    <div id="title-overlay">
+        <div class="title-card">
+            <div class="brand-mark">M</div>
+            <h1>MAPTAG</h1>
+            <div id="daily-date-badge" style="display:inline-block;margin-top:8px;padding:4px 12px;border-radius:999px;background:rgba(56,189,248,0.14);border:1px solid rgba(56,189,248,0.32);font-size:11px;font-weight:800;letter-spacing:0.06em;color:#38bdf8;text-transform:uppercase;">Daily Global Challenge</div>
+            <p>Spin the 3D satellite Earth and pinpoint today's 5 cities—progressing from global metropolises to expert regional gems.</p>
+            <div id="pool-status" style="margin-top:12px;font-size:12px;color:#94a3b8;">Syncing global city pool...</div>
+            <div id="completed-banner" class="hidden" style="margin-top:14px;padding:12px;border-radius:14px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.32);font-size:13px;color:#a7f3d0;"></div>
+            <button type="button" id="start-btn" class="primary-btn" disabled style="opacity:0.65;cursor:wait;">Loading Today's Cities...</button>
+        </div>
+    </div>
+
+    <!-- 2. Minimal Active Round HUD -->
+    <div id="hud-layer" class="hidden">
+        <div class="top-bar">
+            <div class="glass-pill">
+                <div>
+                    <div class="stat-label">Round</div>
+                    <div class="stat-val"><span id="hud-round">1</span> / 5</div>
+                </div>
+                <div class="divider"></div>
+                <div>
+                    <div class="stat-label">Weighted Score</div>
+                    <div id="hud-score" class="stat-val emerald">0</div>
+                </div>
+            </div>
+
+            <div class="zoom-stack">
+                <button type="button" id="zoom-in-btn" class="icon-btn" title="Zoom In">+</button>
+                <button type="button" id="zoom-out-btn" class="icon-btn" title="Zoom Out">−</button>
+                <button type="button" id="reset-view-btn" class="icon-btn" title="Reset Space View" style="font-size:14px;">⟲</button>
+            </div>
+        </div>
+
+        <!-- Target Place Name + State/Country + Difficulty Badge -->
+        <div class="target-banner">
+            <div class="target-eyebrow">
+                <span id="target-round-label">Round 1/5</span>
+                <span id="target-diff-badge" class="diff-badge tier-1">Easy</span>
+            </div>
+            <div id="target-place-name" class="target-name">Tokyo, Japan</div>
+            <div id="target-region-sub" class="target-region-sub">Japan</div>
+        </div>
+
+        <!-- Bottom Pin Coordinate & Lock-In Dock -->
+        <div id="bottom-dock" class="bottom-dock">
+            <div id="coord-hint" class="coord-hint">Click anywhere on the Earth to drop a pin</div>
+            <button type="button" id="lock-btn" disabled>Drop a Pin First</button>
+        </div>
+    </div>
+
+    <!-- 3. Minimal Round Result Card -->
+    <div id="result-card" class="hidden">
+        <div class="res-top">
+            <div>
+                <div id="res-place" class="res-place">Reykjavík, Iceland</div>
+                <div id="res-dist" class="res-sub">0 km away</div>
+            </div>
+            <div class="res-score"><span id="res-emoji">🎯</span> <span id="res-pts">100</span><span style="font-size:15px;color:#94a3b8;"> / 100</span></div>
+        </div>
+        <div class="res-bar-bg">
+            <div id="res-bar" class="res-bar-fill"></div>
+        </div>
+        <div class="res-footer">
+            <div class="legend-row">
+                <span><i class="dot" style="background:#38bdf8;"></i>Your Pin</span>
+                <span><i class="dot" style="background:#10b981;"></i>Actual Place</span>
+            </div>
+            <button type="button" id="next-btn">Next Place</button>
+        </div>
+    </div>
+
+    <!-- 4. Final Scoreboard Summary -->
+    <div id="summary-overlay" class="hidden">
+        <div class="summary-card">
+            <div id="final-rank-label" class="stat-label" style="color:#38bdf8;">5-Round Expedition Complete</div>
+            <div class="final-total"><span id="final-score">0</span> <span style="font-size:18px;color:#64748b;">/ 1,000</span></div>
+            <p id="final-avg" style="font-size:13px;color:#94a3b8;">Average distance: 0 km</p>
+
+            <div id="breakdown-list" class="breakdown-list"></div>
+
+            <div class="share-actions">
+                <button type="button" id="copy-results-btn" class="copy-btn">📋 Copy</button>
+            </div>
+
+            <button type="button" id="play-again-btn" class="primary-btn" style="margin-top:12px;">Play Again</button>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            'use strict';
+
+            /* =================================================================
+               1. DIFFICULTY TIER DEFINITIONS & OFFLINE FALLBACK POOL (80 CITIES)
+               ================================================================= */
+            var TIER_LABELS = {
+                1: 'Easy',
+                2: 'Medium',
+                3: 'Challenging',
+                4: 'Hard',
+                5: 'Expert'
+            };
+
+            // Difficulty weights per round (sum = 10.0 -> max weighted score = 1000)
+            var TIER_WEIGHTS = {
+                1: 1.0,
+                2: 1.5,
+                3: 2.0,
+                4: 2.5,
+                5: 3.0
+            };
+
+            var MAX_EARTH_DIST_KM = 20037.5;
+
+            // Countries where including the state/province adds helpful geographic clarity
+            var STATE_COUNTRIES = {
+                'United States': true,
+                'United States of America': true,
+                'Canada': true,
+                'Australia': true,
+                'Brazil': true,
+                'India': true
+            };
+
+            // 80 curated global cities across Tiers 1 (Easy) to 5 (Expert),
+            // each with formatted state/province and country
+            var FALLBACK_PLACES = [
+                // --- TIER 1: EASY (Iconic Global Metropolises) ---
+                { city: 'Tokyo', region: 'Japan', country: 'Japan', lat: 35.6762, lng: 139.6503, pop: 14090000, tier: 1 },
+                { city: 'New York City', region: 'New York, United States', country: 'United States', lat: 40.7128, lng: -74.0060, pop: 8804000, tier: 1 },
+                { city: 'London', region: 'United Kingdom', country: 'United Kingdom', lat: 51.5072, lng: -0.1276, pop: 8982000, tier: 1 },
+                { city: 'Paris', region: 'France', country: 'France', lat: 48.8566, lng: 2.3522, pop: 2161000, tier: 1 },
+                { city: 'Cairo', region: 'Egypt', country: 'Egypt', lat: 30.0444, lng: 31.2357, pop: 10100000, tier: 1 },
+                { city: 'Sydney', region: 'New South Wales, Australia', country: 'Australia', lat: -33.8688, lng: 151.2093, pop: 5312000, tier: 1 },
+                { city: 'São Paulo', region: 'São Paulo, Brazil', country: 'Brazil', lat: -23.5505, lng: -46.6333, pop: 12330000, tier: 1 },
+                { city: 'Mumbai', region: 'Maharashtra, India', country: 'India', lat: 19.0760, lng: 72.8777, pop: 12440000, tier: 1 },
+                { city: 'Beijing', region: 'China', country: 'China', lat: 39.9042, lng: 116.4074, pop: 21540000, tier: 1 },
+                { city: 'Mexico City', region: 'Mexico', country: 'Mexico', lat: 19.4326, lng: -99.1332, pop: 9209000, tier: 1 },
+                { city: 'Istanbul', region: 'Turkey', country: 'Turkey', lat: 41.0082, lng: 28.9784, pop: 15460000, tier: 1 },
+                { city: 'Rome', region: 'Italy', country: 'Italy', lat: 41.9028, lng: 12.4964, pop: 2873000, tier: 1 },
+                { city: 'Los Angeles', region: 'California, United States', country: 'United States', lat: 34.0522, lng: -118.2437, pop: 3898000, tier: 1 },
+                { city: 'Seoul', region: 'South Korea', country: 'South Korea', lat: 37.5665, lng: 126.9780, pop: 9776000, tier: 1 },
+                { city: 'Buenos Aires', region: 'Argentina', country: 'Argentina', lat: -34.6037, lng: -58.3816, pop: 3075000, tier: 1 },
+                { city: 'Toronto', region: 'Ontario, Canada', country: 'Canada', lat: 43.6532, lng: -79.3832, pop: 2930000, tier: 1 },
+
+                // --- TIER 2: MEDIUM (Major National & Regional Capitals) ---
+                { city: 'Madrid', region: 'Spain', country: 'Spain', lat: 40.4168, lng: -3.7038, pop: 3223000, tier: 2 },
+                { city: 'Berlin', region: 'Germany', country: 'Germany', lat: 52.5200, lng: 13.4050, pop: 3645000, tier: 2 },
+                { city: 'Bangkok', region: 'Thailand', country: 'Thailand', lat: 13.7563, lng: 100.5018, pop: 10539000, tier: 2 },
+                { city: 'Chicago', region: 'Illinois, United States', country: 'United States', lat: 41.8781, lng: -87.6298, pop: 2693000, tier: 2 },
+                { city: 'Melbourne', region: 'Victoria, Australia', country: 'Australia', lat: -37.8136, lng: 144.9631, pop: 5078000, tier: 2 },
+                { city: 'Rio de Janeiro', region: 'Rio de Janeiro, Brazil', country: 'Brazil', lat: -22.9068, lng: -43.1729, pop: 6748000, tier: 2 },
+                { city: 'Nairobi', region: 'Kenya', country: 'Kenya', lat: -1.2921, lng: 36.8219, pop: 4397000, tier: 2 },
+                { city: 'Lima', region: 'Peru', country: 'Peru', lat: -12.0464, lng: -77.0428, pop: 9674000, tier: 2 },
+                { city: 'Jakarta', region: 'Indonesia', country: 'Indonesia', lat: -6.2088, lng: 106.8456, pop: 10562000, tier: 2 },
+                { city: 'Bogotá', region: 'Colombia', country: 'Colombia', lat: 4.7110, lng: -74.0721, pop: 7412000, tier: 2 },
+                { city: 'Johannesburg', region: 'South Africa', country: 'South Africa', lat: -26.2041, lng: 28.0473, pop: 5635000, tier: 2 },
+                { city: 'Athens', region: 'Greece', country: 'Greece', lat: 37.9838, lng: 23.7275, pop: 3154000, tier: 2 },
+                { city: 'Bengaluru', region: 'Karnataka, India', country: 'India', lat: 12.9716, lng: 77.5946, pop: 8443000, tier: 2 },
+                { city: 'Vancouver', region: 'British Columbia, Canada', country: 'Canada', lat: 49.2827, lng: -123.1207, pop: 675000, tier: 2 },
+                { city: 'Stockholm', region: 'Sweden', country: 'Sweden', lat: 59.3293, lng: 18.0686, pop: 975000, tier: 2 },
+                { city: 'Lisbon', region: 'Portugal', country: 'Portugal', lat: 38.7223, lng: -9.1393, pop: 545000, tier: 2 },
+
+                // --- TIER 3: CHALLENGING (Well-Known Secondary Cities) ---
+                { city: 'Austin', region: 'Texas, United States', country: 'United States', lat: 30.2672, lng: -97.7431, pop: 974000, tier: 3 },
+                { city: 'Lyon', region: 'France', country: 'France', lat: 45.7640, lng: 4.8357, pop: 522000, tier: 3 },
+                { city: 'Kyoto', region: 'Japan', country: 'Japan', lat: 35.0116, lng: 135.7681, pop: 1463000, tier: 3 },
+                { city: 'Marrakech', region: 'Morocco', country: 'Morocco', lat: 31.6295, lng: -7.9811, pop: 928000, tier: 3 },
+                { city: 'Perth', region: 'Western Australia, Australia', country: 'Australia', lat: -31.9505, lng: 115.8605, pop: 2125000, tier: 3 },
+                { city: 'Calgary', region: 'Alberta, Canada', country: 'Canada', lat: 51.0447, lng: -114.0719, pop: 1306000, tier: 3 },
+                { city: 'Seville', region: 'Spain', country: 'Spain', lat: 37.3891, lng: -5.9845, pop: 684000, tier: 3 },
+                { city: 'Kraków', region: 'Poland', country: 'Poland', lat: 50.0647, lng: 19.9450, pop: 780000, tier: 3 },
+                { city: 'Busan', region: 'South Korea', country: 'South Korea', lat: 35.1796, lng: 129.0756, pop: 3349000, tier: 3 },
+                { city: 'Manaus', region: 'Amazonas, Brazil', country: 'Brazil', lat: -3.1190, lng: -60.0217, pop: 2219000, tier: 3 },
+                { city: 'Jaipur', region: 'Rajasthan, India', country: 'India', lat: 26.9124, lng: 75.7873, pop: 3073000, tier: 3 },
+                { city: 'Edinburgh', region: 'United Kingdom', country: 'United Kingdom', lat: 55.9533, lng: -3.1883, pop: 526000, tier: 3 },
+                { city: 'Medellín', region: 'Colombia', country: 'Colombia', lat: 6.2442, lng: -75.5812, pop: 2569000, tier: 3 },
+                { city: 'Hanoi', region: 'Vietnam', country: 'Vietnam', lat: 21.0285, lng: 105.8542, pop: 4950000, tier: 3 },
+                { city: 'Auckland', region: 'New Zealand', country: 'New Zealand', lat: -36.8509, lng: 174.7645, pop: 1657000, tier: 3 },
+                { city: 'Reykjavík', region: 'Iceland', country: 'Iceland', lat: 64.1466, lng: -21.9426, pop: 139000, tier: 3 },
+
+                // --- TIER 4: HARD (Regional Hubs & Less Obvious Cities) ---
+                { city: 'Samarkand', region: 'Uzbekistan', country: 'Uzbekistan', lat: 39.6542, lng: 66.9597, pop: 551000, tier: 4 },
+                { city: 'Cusco', region: 'Peru', country: 'Peru', lat: -13.5319, lng: -71.9675, pop: 428000, tier: 4 },
+                { city: 'Hobart', region: 'Tasmania, Australia', country: 'Australia', lat: -42.8821, lng: 147.3272, pop: 247000, tier: 4 },
+                { city: 'Boise', region: 'Idaho, United States', country: 'United States', lat: 43.6150, lng: -116.2023, pop: 235000, tier: 4 },
+                { city: 'Halifax', region: 'Nova Scotia, Canada', country: 'Canada', lat: 44.6488, lng: -63.5752, pop: 439000, tier: 4 },
+                { city: 'Bergen', region: 'Norway', country: 'Norway', lat: 60.3913, lng: 5.3221, pop: 289000, tier: 4 },
+                { city: 'Tallinn', region: 'Estonia', country: 'Estonia', lat: 59.4370, lng: 24.7536, pop: 438000, tier: 4 },
+                { city: 'Almaty', region: 'Kazakhstan', country: 'Kazakhstan', lat: 43.2220, lng: 76.8512, pop: 1977000, tier: 4 },
+                { city: 'Valparaíso', region: 'Chile', country: 'Chile', lat: -33.0472, lng: -71.6127, pop: 296000, tier: 4 },
+                { city: 'Florianópolis', region: 'Santa Catarina, Brazil', country: 'Brazil', lat: -27.5954, lng: -48.5480, pop: 508000, tier: 4 },
+                { city: 'Kochi', region: 'Kerala, India', country: 'India', lat: 9.9312, lng: 76.2673, pop: 677000, tier: 4 },
+                { city: 'Ljubljana', region: 'Slovenia', country: 'Slovenia', lat: 46.0569, lng: 14.5058, pop: 295000, tier: 4 },
+                { city: 'Chiang Mai', region: 'Thailand', country: 'Thailand', lat: 18.7883, lng: 98.9853, pop: 127000, tier: 4 },
+                { city: 'Tbilisi', region: 'Georgia', country: 'Georgia', lat: 41.7151, lng: 44.8271, pop: 1185000, tier: 4 },
+                { city: 'Muscat', region: 'Oman', country: 'Oman', lat: 23.5880, lng: 58.3829, pop: 1421000, tier: 4 },
+                { city: 'Antananarivo', region: 'Madagascar', country: 'Madagascar', lat: -18.8792, lng: 47.5079, pop: 1275000, tier: 4 },
+
+                // --- TIER 5: EXPERT (Remote Outposts & Smaller Regional Cities) ---
+                { city: 'Ushuaia', region: 'Argentina', country: 'Argentina', lat: -54.8019, lng: -68.3030, pop: 82000, tier: 5 },
+                { city: 'Tromsø', region: 'Norway', country: 'Norway', lat: 69.6492, lng: 18.9553, pop: 77000, tier: 5 },
+                { city: 'Queenstown', region: 'New Zealand', country: 'New Zealand', lat: -45.0312, lng: 168.6626, pop: 48000, tier: 5 },
+                { city: 'Bend', region: 'Oregon, United States', country: 'United States', lat: 44.0582, lng: -121.3153, pop: 102000, tier: 5 },
+                { city: 'Inverness', region: 'United Kingdom', country: 'United Kingdom', lat: 57.4778, lng: -4.2247, pop: 63000, tier: 5 },
+                { city: 'Oaxaca', region: 'Mexico', country: 'Mexico', lat: 17.0732, lng: -96.7266, pop: 270000, tier: 5 },
+                { city: 'Whitehorse', region: 'Yukon, Canada', country: 'Canada', lat: 60.7212, lng: -135.0568, pop: 28000, tier: 5 },
+                { city: 'Nuuk', region: 'Greenland', country: 'Greenland', lat: 64.1814, lng: -51.6941, pop: 19000, tier: 5 },
+                { city: 'Darwin', region: 'Northern Territory, Australia', country: 'Australia', lat: -12.4634, lng: 130.8456, pop: 147000, tier: 5 },
+                { city: 'Petropavlovsk-Kamchatsky', region: 'Russia', country: 'Russia', lat: 53.0245, lng: 158.6435, pop: 181000, tier: 5 },
+                { city: 'Cuiabá', region: 'Mato Grosso, Brazil', country: 'Brazil', lat: -15.6014, lng: -56.0979, pop: 618000, tier: 5 },
+                { city: 'Leh', region: 'Ladakh, India', country: 'India', lat: 34.1526, lng: 77.5771, pop: 31000, tier: 5 },
+                { city: 'Iquitos', region: 'Peru', country: 'Peru', lat: -3.7437, lng: -73.2516, pop: 437000, tier: 5 },
+                { city: 'Windhoek', region: 'Namibia', country: 'Namibia', lat: -22.5609, lng: 17.0658, pop: 431000, tier: 5 },
+                { city: 'Lhasa', region: 'China', country: 'China', lat: 29.6500, lng: 91.1000, pop: 464000, tier: 5 },
+                { city: 'Punta Arenas', region: 'Chile', country: 'Chile', lat: -53.1638, lng: -70.9171, pop: 131000, tier: 5 }
+            ];
+
+            /* =================================================================
+               2. DETERMINISTIC UTC DAILY SEED (FNV-1a + MULBERRY32)
+               ================================================================= */
+            function getTodayUTCString() {
+                var now = new Date();
+                var y = now.getUTCFullYear();
+                var m = String(now.getUTCMonth() + 1).padStart(2, '0');
+                var d = String(now.getUTCDate()).padStart(2, '0');
+                return y + '-' + m + '-' + d;
+            }
+
+            function hashStringFNV1a(str) {
+                var h = 0x811c9dc5;
+                for (var i = 0; i < str.length; i++) {
+                    h ^= str.charCodeAt(i);
+                    h = Math.imul(h, 0x01000193);
+                }
+                return h >>> 0;
+            }
+
+            function createMulberry32(seed) {
+                var a = seed >>> 0;
+                return function () {
+                    a |= 0;
+                    a = (a + 0x6D2B79F5) | 0;
+                    var t = Math.imul(a ^ (a >>> 15), 1 | a);
+                    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+                    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+                };
+            }
+
+            function deterministicShuffle(list, rng) {
+                var arr = list.slice();
+                for (var i = arr.length - 1; i > 0; i--) {
+                    var j = Math.floor(rng() * (i + 1));
+                    var tmp = arr[i];
+                    arr[i] = arr[j];
+                    arr[j] = tmp;
+                }
+                return arr;
+            }
+
+            function formatPlaceDisplay(item) {
+                if (item.region && item.region !== item.country) {
+                    return item.city + ', ' + item.region;
+                }
+                return item.city + ', ' + item.country;
+            }
+
+            /**
+             * Divides a population-sorted pool into 5 difficulty tiers (1=Easy -> 5=Expert)
+             * and deterministically selects 1 city from each tier using today's UTC seed,
+             * avoiding duplicate countries across the 5 rounds when possible.
+             */
+            function selectDailyProgressiveDeck(pool, dateStr) {
+                var rng = createMulberry32(hashStringFNV1a('MAPTAG-PROGRESSIVE-V2-' + dateStr));
+                var buckets = { 1: [], 2: [], 3: [], 4: [], 5: [] };
+
+                var hasExplicitTiers = pool.length > 0 && typeof pool[0].tier === 'number';
+                if (hasExplicitTiers) {
+                    for (var i = 0; i < pool.length; i++) {
+                        var t = Math.min(5, Math.max(1, pool[i].tier));
+                        buckets[t].push(pool[i]);
+                    }
+                } else {
+                    var sorted = pool.slice().sort(function (a, b) {
+                        if (b.pop !== a.pop) return b.pop - a.pop;
+                        return a.city.localeCompare(b.city);
+                    });
+
+                    var n = sorted.length;
+                    var cut1 = Math.max(1, Math.floor(n * 0.12));
+                    var cut2 = Math.max(cut1 + 1, Math.floor(n * 0.30));
+                    var cut3 = Math.max(cut2 + 1, Math.floor(n * 0.52));
+                    var cut4 = Math.max(cut3 + 1, Math.floor(n * 0.76));
+
+                    buckets[1] = sorted.slice(0, cut1);
+                    buckets[2] = sorted.slice(cut1, cut2);
+                    buckets[3] = sorted.slice(cut2, cut3);
+                    buckets[4] = sorted.slice(cut3, cut4);
+                    buckets[5] = sorted.slice(cut4);
+                }
+
+                var deck = [];
+                var usedCountries = {};
+                var usedCities = {};
+
+                for (var tier = 1; tier <= 5; tier++) {
+                    var candidates = deterministicShuffle(buckets[tier] || [], rng);
+                    var chosen = null;
+
+                    // First pass: pick a city whose country hasn't been used yet today
+                    for (var c = 0; c < candidates.length; c++) {
+                        var cand = candidates[c];
+                        var key = (cand.city + '|' + cand.country).toLowerCase();
+                        if (!usedCities[key] && !usedCountries[cand.country]) {
+                            chosen = cand;
+                            break;
+                        }
+                    }
+
+                    // Second pass: allow same country if all candidates in this tier share countries
+                    if (!chosen) {
+                        for (var c2 = 0; c2 < candidates.length; c2++) {
+                            var cand2 = candidates[c2];
+                            var key2 = (cand2.city + '|' + cand2.country).toLowerCase();
+                            if (!usedCities[key2]) {
+                                chosen = cand2;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (chosen) {
+                        usedCountries[chosen.country] = true;
+                        usedCities[(chosen.city + '|' + chosen.country).toLowerCase()] = true;
+                        deck.push({
+                            city: chosen.city,
+                            region: chosen.region || chosen.country,
+                            country: chosen.country,
+                            displayName: formatPlaceDisplay(chosen),
+                            lat: chosen.lat,
+                            lng: chosen.lng,
+                            pop: chosen.pop || 0,
+                            tier: tier,
+                            tierLabel: TIER_LABELS[tier]
+                        });
+                    }
+                }
+
+                return deck;
+            }
+
+            /* =================================================================
+               3. LIVE WIKIDATA SPARQL FETCH WITH STATE/COUNTRY + LOCAL CACHE
+               ================================================================= */
+            var POOL_CACHE_KEY = 'maptag_wikidata_pool_v2';
+            var DAILY_RESULT_PREFIX = 'maptag_daily_result_v3_';
+
+            function parsePointWKT(wkt) {
+                var m = /Point\(\s*([+-]?\d+(?:\.\d+)?)\s+([+-]?\d+(?:\.\d+)?)\s*\)/i.exec(wkt || '');
+                if (!m) return null;
+                return { lng: parseFloat(m[1]), lat: parseFloat(m[2]) };
+            }
+
+            function cleanAdminName(rawAdmin) {
+                if (!rawAdmin) return '';
+                return rawAdmin
+                    .replace(/^State of\s+/i, '')
+                    .replace(/^Province of\s+/i, '')
+                    .replace(/\s+Province$/i, '')
+                    .replace(/\s+State$/i, '')
+                    .trim();
+            }
+
+            function normalizeCountryName(rawCountry) {
+                if (rawCountry === 'United States of America') return 'United States';
+                return rawCountry;
+            }
+
+            async function fetchWorldCityPool() {
+                // 1. Check localStorage cache (valid for 24 hours)
+                try {
+                    var cachedRaw = localStorage.getItem(POOL_CACHE_KEY);
+                    if (cachedRaw) {
+                        var cached = JSON.parse(cachedRaw);
+                        if (cached && Array.isArray(cached.items) && cached.items.length >= 150 &&
+                            (Date.now() - cached.ts) < 24 * 60 * 60 * 1000) {
+                            return { items: cached.items, source: 'live-cached' };
+                        }
+                    }
+                } catch (cacheErr) {}
+
+                // 2. Query Wikidata public SPARQL endpoint for cities (pop >= 100,000) + country + optional state/province
+                var sparql = [
+                    'SELECT ?city ?cityLabel ?countryLabel (SAMPLE(?adminLabel) AS ?stateLabel) (SAMPLE(?coord) AS ?sampleCoord) (MAX(?pop) AS ?maxPop) WHERE {',
+                    '  ?city wdt:P31/wdt:P279* wd:Q515;',
+                    '        wdt:P17 ?country;',
+                    '        wdt:P625 ?coord;',
+                    '        wdt:P1082 ?pop.',
+                    '  FILTER(?pop >= 100000)',
+                    '  OPTIONAL {',
+                    '    ?city wdt:P131 ?admin.',
+                    '    ?admin wdt:P31/wdt:P279* wd:Q10864048.',
+                    '    ?admin rdfs:label ?adminLabel.',
+                    '    FILTER(LANG(?adminLabel) = "en")',
+                    '  }',
+                    '  SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }',
+                    '}',
+                    'GROUP BY ?city ?cityLabel ?countryLabel',
+                    'ORDER BY DESC(?maxPop)',
+                    'LIMIT 1500'
+                ].join('\n');
+
+                var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+                var timer = controller ? setTimeout(function () { controller.abort(); }, 6500) : null;
+
+                try {
+                    var url = 'https://query.wikidata.org/sparql?format=json&query=' + encodeURIComponent(sparql);
+                    var resp = await fetch(url, {
+                        headers: { 'Accept': 'application/sparql-results+json' },
+                        signal: controller ? controller.signal : undefined
+                    });
+                    if (timer) clearTimeout(timer);
+                    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+
+                    var data = await resp.json();
+                    var bindings = (data && data.results && data.results.bindings) || [];
+                    var seen = {};
+                    var list = [];
+
+                    for (var i = 0; i < bindings.length; i++) {
+                        var row = bindings[i];
+                        var city = row.cityLabel && row.cityLabel.value;
+                        var rawCountry = row.countryLabel && row.countryLabel.value;
+                        var rawState = row.stateLabel && row.stateLabel.value;
+                        var coordStr = row.sampleCoord && row.sampleCoord.value;
+                        var popVal = row.maxPop ? parseFloat(row.maxPop.value) : 0;
+
+                        if (!city || !rawCountry || !coordStr) continue;
+                        if (/^Q\d+$/.test(city) || /^Q\d+$/.test(rawCountry)) continue;
+
+                        var country = normalizeCountryName(rawCountry);
+                        var pt = parsePointWKT(coordStr);
+                        if (!pt || isNaN(pt.lat) || isNaN(pt.lng)) continue;
+
+                        var cleanState = cleanAdminName(rawState);
+                        var region = country;
+                        if (STATE_COUNTRIES[country] && cleanState &&
+                            cleanState.toLowerCase() !== city.toLowerCase() &&
+                            cleanState.toLowerCase() !== country.toLowerCase() &&
+                            !/^Q\d+$/.test(cleanState)) {
+                            region = cleanState + ', ' + country;
+                        }
+
+                        var dedupKey = (city + '|' + region).toLowerCase();
+                        if (seen[dedupKey]) continue;
+                        seen[dedupKey] = true;
+
+                        list.push({
+                            city: city,
+                            region: region,
+                            country: country,
+                            lat: pt.lat,
+                            lng: pt.lng,
+                            pop: popVal
+                        });
+                    }
+
+                    // Deterministic canonical sort before saving
+                    list.sort(function (a, b) {
+                        if (b.pop !== a.pop) return b.pop - a.pop;
+                        return a.city.localeCompare(b.city);
+                    });
+
+                    if (list.length >= 100) {
+                        try {
+                            localStorage.setItem(POOL_CACHE_KEY, JSON.stringify({
+                                ts: Date.now(),
+                                items: list
+                            }));
+                        } catch (saveErr) {}
+                        return { items: list, source: 'live' };
+                    }
+                } catch (err) {
+                    if (timer) clearTimeout(timer);
+                }
+
+                return { items: FALLBACK_PLACES, source: 'fallback' };
+            }
+
+            /* =================================================================
+               4. GAME STATE
+               ================================================================= */
+            var state = {
+                phase: 'TITLE',
+                todayStr: getTodayUTCString(),
+                round: 1,
+                totalRounds: 5,
+                totalScore: 0,
+                deck: [],
+                target: null,
+                history: [],
+                guessPin: null,
+                map: null,
+                mapReady: false,
+                guessMarker: null,
+                actualMarker: null,
+                usingFallbackTiles: false,
+                spinRaf: null,
+                userInteracting: false
+            };
+
+            var DEG2RAD = Math.PI / 180;
+            var RAD2DEG = 180 / Math.PI;
+
+            /* =================================================================
+               5. DEEP-SPACE STARFIELD BACKDROP
+               ================================================================= */
+            function initStarfield() {
+                try {
+                    var starCanvas = document.getElementById('starfield');
+                    var sctx = starCanvas.getContext('2d');
+                    function drawStars() {
+                        var dpr = Math.min(window.devicePixelRatio || 1, 2);
+                        starCanvas.width = Math.floor(window.innerWidth * dpr);
+                        starCanvas.height = Math.floor(window.innerHeight * dpr);
+                        sctx.fillStyle = '#020617';
+                        sctx.fillRect(0, 0, starCanvas.width, starCanvas.height);
+
+                        for (var i = 0; i < 220; i++) {
+                            var x = Math.random() * starCanvas.width;
+                            var y = Math.random() * starCanvas.height;
+                            var r = (0.4 + Math.random() * 1.3) * dpr;
+                            var a = 0.25 + Math.random() * 0.75;
+                            sctx.fillStyle = 'rgba(226, 232, 240, ' + a + ')';
+                            sctx.beginPath();
+                            sctx.arc(x, y, r, 0, Math.PI * 2);
+                            sctx.fill();
+                        }
+                    }
+                    drawStars();
+                    window.addEventListener('resize', drawStars);
+                } catch (err) {}
+            }
+
+            /* =================================================================
+               6. INITIALIZE 3D SATELLITE EARTH (MAPLIBRE GL JS GLOBE)
+               ================================================================= */
+            function initSatelliteGlobe() {
+                if (typeof window.maplibregl === 'undefined') {
+                    console.warn('MapLibre GL JS did not load; UI remains active.');
+                    return;
+                }
+
+                try {
+                    var map = new maplibregl.Map({
+                        container: 'map',
+                        center: [15, 22],
+                        zoom: 1.65,
+                        minZoom: 1.0,
+                        maxZoom: 18,
+                        pitch: 0,
+                        bearing: 0,
+                        attributionControl: true,
+                        style: {
+                            version: 8,
+                            projection: { type: 'globe' },
+                            sky: {
+                                'atmosphere-blend': [
+                                    'interpolate',
+                                    ['linear'],
+                                    ['zoom'],
+                                    0, 1,
+                                    5, 1,
+                                    7, 0
+                                ]
+                            },
+                            sources: {
+                                'satellite-imagery': {
+                                    type: 'raster',
+                                    tiles: [
+                                        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+                                    ],
+                                    tileSize: 256,
+                                    maxzoom: 18,
+                                    attribution: 'Imagery © Esri, Maxar, Earthstar Geographics'
+                                }
+                            },
+                            layers: [
+                                {
+                                    id: 'satellite-layer',
+                                    type: 'raster',
+                                    source: 'satellite-imagery',
+                                    paint: {
+                                        'raster-fade-duration': 250
+                                    }
+                                }
+                            ]
+                        }
+                    });
+
+                    state.map = map;
+
+                    // Automatic fallback to EOX Sentinel-2 Cloudless satellite imagery if Esri tiles fail
+                    var tileErrorCount = 0;
+                    map.on('error', function (e) {
+                        if (e && e.sourceId === 'satellite-imagery' && !state.usingFallbackTiles) {
+                            tileErrorCount++;
+                            if (tileErrorCount >= 3) {
+                                state.usingFallbackTiles = true;
+                                try {
+                                    var src = map.getSource('satellite-imagery');
+                                    if (src && typeof src.setTiles === 'function') {
+                                        src.setTiles([
+                                            'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg'
+                                        ]);
+                                    }
+                                } catch (fallbackErr) {}
+                            }
+                        }
+                    });
+
+                    map.on('style.load', function () {
+                        try {
+                            map.setProjection({ type: 'globe' });
+                        } catch (projErr) {}
+                    });
+
+                    map.on('load', function () {
+                        state.mapReady = true;
+
+                        // Add empty GeoJSON source + glowing geodesic arc layers for round reveals
+                        map.addSource('reveal-arc', {
+                            type: 'geojson',
+                            data: { type: 'FeatureCollection', features: [] }
+                        });
+
+                        map.addLayer({
+                            id: 'reveal-arc-glow',
+                            type: 'line',
+                            source: 'reveal-arc',
+                            layout: {
+                                'line-cap': 'round',
+                                'line-join': 'round'
+                            },
+                            paint: {
+                                'line-color': '#fbbf24',
+                                'line-width': 8,
+                                'line-opacity': 0.28
+                            }
+                        });
+
+                        map.addLayer({
+                            id: 'reveal-arc-line',
+                            type: 'line',
+                            source: 'reveal-arc',
+                            layout: {
+                                'line-cap': 'round',
+                                'line-join': 'round'
+                            },
+                            paint: {
+                                'line-color': '#fde047',
+                                'line-width': 3,
+                                'line-dasharray': [2, 2]
+                            }
+                        });
+
+                        startAmbientGlobeSpin();
+                    });
+
+                    // Pause ambient title spin while dragging
+                    map.on('mousedown', function () { state.userInteracting = true; });
+                    map.on('touchstart', function () { state.userInteracting = true; });
+                    map.on('mouseup', function () { state.userInteracting = false; });
+                    map.on('touchend', function () { state.userInteracting = false; });
+
+                    // Click anywhere on the 3D globe during a round to drop/move pin
+                    map.on('click', function (e) {
+                        if (state.phase !== 'PLAYING' || !e || !e.lngLat) return;
+                        var wrapped = e.lngLat.wrap();
+                        placeGuessPin({
+                            lat: wrapped.lat,
+                            lng: wrapped.lng
+                        });
+                    });
+                } catch (err) {
+                    console.error('Globe initialization error:', err);
+                }
+            }
+
+            function startAmbientGlobeSpin() {
+                var lastTime = performance.now();
+                function spinStep(now) {
+                    var dt = (now - lastTime) / 1000;
+                    lastTime = now;
+
+                    if (state.phase === 'TITLE' && state.map && !state.userInteracting) {
+                        var center = state.map.getCenter();
+                        center.lng += 4.5 * dt;
+                        state.map.jumpTo({ center: center });
+                    }
+                    state.spinRaf = requestAnimationFrame(spinStep);
+                }
+                state.spinRaf = requestAnimationFrame(spinStep);
+            }
+
+            /* =================================================================
+               7. CUSTOM DOM MARKERS & GREAT-CIRCLE GEODESIC ARC
+               ================================================================= */
+            function createPinElement(type, labelText) {
+                var el = document.createElement('div');
+                el.className = 'globe-pin ' + type;
+
+                var pulse = document.createElement('div');
+                pulse.className = 'globe-pin-pulse';
+                el.appendChild(pulse);
+
+                var core = document.createElement('div');
+                core.className = 'globe-pin-core';
+                el.appendChild(core);
+
+                if (labelText) {
+                    var tag = document.createElement('div');
+                    tag.className = 'globe-pin-tag';
+                    tag.textContent = labelText;
+                    el.appendChild(tag);
+                }
+                return el;
+            }
+
+            function clearRoundGraphics() {
+                if (state.guessMarker) {
+                    state.guessMarker.remove();
+                    state.guessMarker = null;
+                }
+                if (state.actualMarker) {
+                    state.actualMarker.remove();
+                    state.actualMarker = null;
+                }
+                if (state.map && state.mapReady && state.map.getSource('reveal-arc')) {
+                    state.map.getSource('reveal-arc').setData({
+                        type: 'FeatureCollection',
+                        features: []
+                    });
+                }
+            }
+
+            function buildGreatCircleGeoJSON(p1, p2, steps) {
+                var lat1 = p1.lat * DEG2RAD;
+                var lon1 = p1.lng * DEG2RAD;
+                var lat2 = p2.lat * DEG2RAD;
+                var lon2 = p2.lng * DEG2RAD;
+
+                var x1 = Math.cos(lat1) * Math.cos(lon1);
+                var y1 = Math.cos(lat1) * Math.sin(lon1);
+                var z1 = Math.sin(lat1);
+
+                var x2 = Math.cos(lat2) * Math.cos(lon2);
+                var y2 = Math.cos(lat2) * Math.sin(lon2);
+                var z2 = Math.sin(lat2);
+
+                var dot = Math.max(-1, Math.min(1, x1 * x2 + y1 * y2 + z1 * z2));
+                var omega = Math.acos(dot);
+                var coords = [];
+
+                for (var i = 0; i <= steps; i++) {
+                    var t = i / steps;
+                    var a, b;
+                    if (omega < 1e-5) {
+                        a = 1 - t;
+                        b = t;
+                    } else {
+                        var sinO = Math.sin(omega);
+                        a = Math.sin((1 - t) * omega) / sinO;
+                        b = Math.sin(t * omega) / sinO;
+                    }
+                    var x = a * x1 + b * x2;
+                    var y = a * y1 + b * y2;
+                    var z = a * z1 + b * z2;
+
+                    var lat = Math.atan2(z, Math.sqrt(x * x + y * y)) * RAD2DEG;
+                    var lng = Math.atan2(y, x) * RAD2DEG;
+                    coords.push([lng, lat]);
+                }
+
+                return {
+                    type: 'FeatureCollection',
+                    features: [
+                        {
+                            type: 'Feature',
+                            geometry: {
+                                type: 'LineString',
+                                coordinates: coords
+                            }
+                        }
+                    ]
+                };
+            }
+
+            /* =================================================================
+               8. HAVERSINE DISTANCE, SCORING & GAMEPLAY LOOP
+               ================================================================= */
+            function calcHaversineKm(lat1, lon1, lat2, lon2) {
+                var R = 6371;
+                var dLat = (lat2 - lat1) * DEG2RAD;
+                var dLon = (lon2 - lon1) * DEG2RAD;
+                var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                        Math.cos(lat1 * DEG2RAD) * Math.cos(lat2 * DEG2RAD) *
+                        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+                return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            }
+
+            function formatDistance(km) {
+                var mi = km * 0.621371;
+                if (km < 1) {
+                    return Math.round(km * 1000) + ' m (' + Math.round(mi * 5280) + ' ft)';
+                }
+                return Math.round(km).toLocaleString() + ' km (' + Math.round(mi).toLocaleString() + ' mi)';
+            }
+
+            /**
+             * Computes a 1-to-100 rating where <= 25 km is 100 and the antipodal
+             * point on Earth (~20,037.5 km) curves smoothly down to 1.
+             */
+            function scoreQuestion(distanceKm) {
+                if (distanceKm <= 25) return 100;
+                var clamped = Math.min(Math.max(0, distanceKm), MAX_EARTH_DIST_KM);
+                var ratio = 1 - (clamped / MAX_EARTH_DIST_KM);
+                var raw = 1 + 99 * Math.pow(ratio, 2.2);
+                return Math.max(1, Math.min(100, Math.round(raw)));
+            }
+
+            function getRatingEmoji(rating) {
+                if (rating >= 95) return '🎯';
+                if (rating >= 80) return '🟢';
+                if (rating >= 60) return '🟡';
+                if (rating >= 35) return '🟠';
+                return '🔴';
+            }
+
+            function getExpeditionTitle(totalOutOf1000) {
+                if (totalOutOf1000 >= 920) return '🌍 Grandmaster Cartographer';
+                if (totalOutOf1000 >= 800) return '🧭 Master Navigator';
+                if (totalOutOf1000 >= 650) return '✈️ Seasoned Explorer';
+                if (totalOutOf1000 >= 450) return '🗺️ Curious Traveler';
+                return '🎒 Rookie Backpacker';
+            }
+
+            function computeWeightedTotal(historyList) {
+                var weightedSum = 0;
+                for (var i = 0; i < historyList.length; i++) {
+                    var item = historyList[i];
+                    var w = item.weight || TIER_WEIGHTS[item.tier] || 1.0;
+                    weightedSum += item.rating * w;
+                }
+                return Math.round(weightedSum);
+            }
+
+            function buildShareText() {
+                var lines = [
+                    '🌍 MAPTAG • ' + state.todayStr,
+                    '🏆 Score: ' + state.totalScore.toLocaleString() + ' / 1000',
+                    ''
+                ];
+                for (var i = 0; i < state.history.length; i++) {
+                    var h = state.history[i];
+                    lines.push(h.emoji + ' ' + h.displayName + ' — ' + h.rating + '/100');
+                }
+                return lines.join('\n');
+            }
+
+            function copyTextToClipboard(text) {
+                if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                    return navigator.clipboard.writeText(text).catch(function () {
+                        fallbackTextareaCopy(text);
+                    });
+                }
+                fallbackTextareaCopy(text);
+                return Promise.resolve();
+            }
+
+            function fallbackTextareaCopy(text) {
+                var ta = document.createElement('textarea');
+                ta.value = text;
+                ta.setAttribute('readonly', '');
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                try {
+                    document.execCommand('copy');
+                } catch (err) {}
+                document.body.removeChild(ta);
+            }
+
+            function placeGuessPin(pt) {
+                state.guessPin = pt;
+
+                if (state.map && typeof window.maplibregl !== 'undefined') {
+                    if (!state.guessMarker) {
+                        state.guessMarker = new maplibregl.Marker({
+                            element: createPinElement('guess', null),
+                            anchor: 'center'
+                        })
+                            .setLngLat([pt.lng, pt.lat])
+                            .addTo(state.map);
+                    } else {
+                        state.guessMarker.setLngLat([pt.lng, pt.lat]);
+                    }
+                }
+
+                var lockBtn = document.getElementById('lock-btn');
+                lockBtn.disabled = false;
+                lockBtn.classList.add('ready');
+                lockBtn.textContent = 'Lock In Guess';
+
+                var ns = pt.lat >= 0 ? 'N' : 'S';
+                var ew = pt.lng >= 0 ? 'E' : 'W';
+                document.getElementById('coord-hint').textContent =
+                    Math.abs(pt.lat).toFixed(3) + '°' + ns + ', ' + Math.abs(pt.lng).toFixed(3) + '°' + ew;
+            }
+
+            function startGame() {
+                state.round = 1;
+                state.totalScore = 0;
+                state.history = [];
+                if (!state.deck || state.deck.length < state.totalRounds) {
+                    state.deck = selectDailyProgressiveDeck(FALLBACK_PLACES, state.todayStr);
+                }
+
+                document.getElementById('title-overlay').classList.add('hidden');
+                document.getElementById('summary-overlay').classList.add('hidden');
+                document.getElementById('result-card').classList.add('hidden');
+                document.getElementById('hud-layer').classList.remove('hidden');
+
+                loadRound(1);
+            }
+
+            function loadRound(num) {
+                state.phase = 'PLAYING';
+                state.round = num;
+                state.target = state.deck[num - 1];
+                state.guessPin = null;
+
+                clearRoundGraphics();
+
+                document.getElementById('hud-round').textContent = num;
+                document.getElementById('hud-score').textContent = state.totalScore.toLocaleString();
+
+                var tierNum = state.target.tier || num;
+                var tierName = state.target.tierLabel || TIER_LABELS[tierNum] || 'Medium';
+                var weightVal = TIER_WEIGHTS[tierNum] || 1.0;
+                document.getElementById('target-round-label').textContent =
+                    'Round ' + num + ' / ' + state.totalRounds + ' • ×' + weightVal.toFixed(1);
+
+                var diffBadge = document.getElementById('target-diff-badge');
+                diffBadge.textContent = tierName;
+                diffBadge.className = 'diff-badge tier-' + tierNum;
+
+                document.getElementById('target-place-name').textContent = state.target.displayName;
+                document.getElementById('target-region-sub').textContent = state.target.region;
+
+                document.getElementById('result-card').classList.add('hidden');
+                document.getElementById('bottom-dock').classList.remove('hidden');
+
+                var lockBtn = document.getElementById('lock-btn');
+                lockBtn.disabled = true;
+                lockBtn.classList.remove('ready');
+                lockBtn.textContent = 'Drop a Pin First';
+                document.getElementById('coord-hint').textContent = 'Click anywhere on the Earth to drop a pin';
+
+                if (state.map) {
+                    try {
+                        state.map.flyTo({
+                            zoom: 1.75,
+                            pitch: 0,
+                            bearing: 0,
+                            duration: 1100,
+                            essential: true
+                        });
+                    } catch (e) {}
+                }
+            }
+
+            function lockInGuess() {
+                if (state.phase !== 'PLAYING' || !state.guessPin || !state.target) return;
+                state.phase = 'RESULT';
+
+                var distKm = calcHaversineKm(
+                    state.guessPin.lat,
+                    state.guessPin.lng,
+                    state.target.lat,
+                    state.target.lng
+                );
+
+                var tierNum = state.target.tier || state.round;
+                var weight = TIER_WEIGHTS[tierNum] || 1.0;
+                var rating = scoreQuestion(distKm);
+                var emoji = getRatingEmoji(rating);
+
+                state.history.push({
+                    round: state.round,
+                    city: state.target.city,
+                    displayName: state.target.displayName,
+                    region: state.target.region,
+                    tier: tierNum,
+                    tierLabel: state.target.tierLabel,
+                    weight: weight,
+                    distKm: distKm,
+                    rating: rating,
+                    emoji: emoji
+                });
+
+                state.totalScore = computeWeightedTotal(state.history);
+                document.getElementById('hud-score').textContent = state.totalScore.toLocaleString();
+
+                if (state.map && typeof window.maplibregl !== 'undefined') {
+                    if (state.guessMarker) {
+                        state.guessMarker.remove();
+                    }
+                    state.guessMarker = new maplibregl.Marker({
+                        element: createPinElement('guess', 'Your Pin'),
+                        anchor: 'center'
+                    })
+                        .setLngLat([state.guessPin.lng, state.guessPin.lat])
+                        .addTo(state.map);
+
+                    state.actualMarker = new maplibregl.Marker({
+                        element: createPinElement('actual', state.target.displayName),
+                        anchor: 'center'
+                    })
+                        .setLngLat([state.target.lng, state.target.lat])
+                        .addTo(state.map);
+
+                    if (state.mapReady && state.map.getSource('reveal-arc')) {
+                        state.map.getSource('reveal-arc').setData(
+                            buildGreatCircleGeoJSON(state.guessPin, state.target, 72)
+                        );
+                    }
+
+                    try {
+                        var midLat = (state.guessPin.lat + state.target.lat) / 2;
+                        var diffLng = ((state.target.lng - state.guessPin.lng + 540) % 360) - 180;
+                        var midLng = ((state.guessPin.lng + diffLng / 2 + 540) % 360) - 180;
+                        var targetZoom =
+                            distKm < 25 ? 11.5 :
+                            distKm < 120 ? 8.2 :
+                            distKm < 500 ? 5.8 :
+                            distKm < 1800 ? 4.1 :
+                            distKm < 5000 ? 2.6 : 1.5;
+
+                        state.map.flyTo({
+                            center: [midLng, midLat],
+                            zoom: targetZoom,
+                            pitch: distKm < 300 ? 35 : 0,
+                            duration: 1450,
+                            essential: true
+                        });
+                    } catch (flyErr) {}
+                }
+
+                document.getElementById('bottom-dock').classList.add('hidden');
+                document.getElementById('res-place').textContent = state.target.displayName;
+                document.getElementById('res-dist').textContent =
+                    '[' + state.target.tierLabel + ' ×' + weight.toFixed(1) + '] ' + formatDistance(distKm) + ' away';
+                document.getElementById('res-emoji').textContent = emoji;
+                document.getElementById('res-pts').textContent = rating;
+                document.getElementById('next-btn').textContent =
+                    state.round >= state.totalRounds ? 'See Daily Summary' : 'Next Place';
+
+                document.getElementById('result-card').classList.remove('hidden');
+
+                var bar = document.getElementById('res-bar');
+                bar.style.width = '0%';
+                requestAnimationFrame(function () {
+                    bar.style.width = rating + '%';
+                });
+            }
+
+            function getNextUTCCountdown() {
+                var now = new Date();
+                var nextMidnight = Date.UTC(
+                    now.getUTCFullYear(),
+                    now.getUTCMonth(),
+                    now.getUTCDate() + 1,
+                    0, 0, 0
+                );
+                var diffSec = Math.max(0, Math.floor((nextMidnight - now.getTime()) / 1000));
+                var hh = String(Math.floor(diffSec / 3600)).padStart(2, '0');
+                var mm = String(Math.floor((diffSec % 3600) / 60)).padStart(2, '0');
+                var ss = String(diffSec % 60).padStart(2, '0');
+                return hh + ':' + mm + ':' + ss;
+            }
+
+            function showSummary() {
+                state.phase = 'SUMMARY';
+                document.getElementById('result-card').classList.add('hidden');
+                document.getElementById('hud-layer').classList.add('hidden');
+
+                state.totalScore = computeWeightedTotal(state.history);
+
+                try {
+                    localStorage.setItem(DAILY_RESULT_PREFIX + state.todayStr, JSON.stringify({
+                        score: state.totalScore,
+                        history: state.history
+                    }));
+                } catch (e) {}
+
+                document.getElementById('final-rank-label').textContent =
+                    getExpeditionTitle(state.totalScore);
+                document.getElementById('final-score').textContent = state.totalScore.toLocaleString();
+                var totalKm = state.history.reduce(function (sum, item) { return sum + item.distKm; }, 0);
+                var avgKm = totalKm / Math.max(1, state.history.length);
+                document.getElementById('final-avg').textContent =
+                    'Daily (' + state.todayStr + ' UTC) • Avg distance: ' + formatDistance(avgKm) +
+                    ' • Next in ' + getNextUTCCountdown();
+
+                var html = '';
+                for (var i = 0; i < state.history.length; i++) {
+                    var h = state.history[i];
+                    html += '<div class="breakdown-row">' +
+                        '<div style="display:flex;align-items:center;gap:8px;min-width:0;">' +
+                        '<span style="font-size:17px;flex-shrink:0;">' + h.emoji + '</span>' +
+                        '<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+                        '<strong style="color:#ffffff;">' + h.displayName + '</strong> ' +
+                        '<span style="color:#38bdf8;font-size:11px;font-weight:700;">(×' + h.weight.toFixed(1) + ')</span>' +
+                        '</div></div>' +
+                        '<div style="text-align:right;font-family:monospace;flex-shrink:0;margin-left:10px;">' +
+                        '<span style="color:#94a3b8;margin-right:10px;font-size:12px;">' + Math.round(h.distKm).toLocaleString() + ' km</span>' +
+                        '<strong style="color:#34d399;font-size:14px;">' + h.rating + '/100</strong>' +
+                        '</div></div>';
+                }
+                document.getElementById('breakdown-list').innerHTML = html;
+
+                var copyBtn = document.getElementById('copy-results-btn');
+                copyBtn.classList.remove('copied');
+                copyBtn.textContent = '📋 Copy';
+
+                document.getElementById('summary-overlay').classList.remove('hidden');
+            }
+
+            /* =================================================================
+               9. INITIALIZATION & DAILY CHALLENGE BOOTSTRAP
+               ================================================================= */
+            async function bootstrapDailyChallenge() {
+                var dateBadge = document.getElementById('daily-date-badge');
+                var poolStatus = document.getElementById('pool-status');
+                var startBtn = document.getElementById('start-btn');
+                var completedBanner = document.getElementById('completed-banner');
+
+                dateBadge.textContent = 'Daily Challenge • ' + state.todayStr + ' (UTC)';
+
+                var result = await fetchWorldCityPool();
+                state.deck = selectDailyProgressiveDeck(result.items, state.todayStr);
+
+                if (result.source === 'live' || result.source === 'live-cached') {
+                    poolStatus.textContent =
+                        'Synced ' + result.items.length.toLocaleString() +
+                        ' world cities • 5 progressive tiers (Easy → Expert)';
+                } else {
+                    poolStatus.textContent =
+                        'Offline global pool (' + result.items.length + ' cities) • 5 progressive tiers';
+                }
+
+                try {
+                    var prevRaw = localStorage.getItem(DAILY_RESULT_PREFIX + state.todayStr);
+                    if (prevRaw) {
+                        var prev = JSON.parse(prevRaw);
+                        if (prev && typeof prev.score === 'number') {
+                            completedBanner.classList.remove('hidden');
+                            completedBanner.textContent =
+                                'Completed today: ' + prev.score.toLocaleString() +
+                                ' / 1,000 pts • New cities in ' + getNextUTCCountdown() + ' UTC';
+                            startBtn.textContent = 'Replay Today\'s 5 Cities';
+                        } else {
+                            startBtn.textContent = 'Play Today\'s Challenge';
+                        }
+                    } else {
+                        startBtn.textContent = 'Play Today\'s Challenge';
+                    }
+                } catch (e) {
+                    startBtn.textContent = 'Play Today\'s Challenge';
+                }
+
+                startBtn.disabled = false;
+                startBtn.style.opacity = '1';
+                startBtn.style.cursor = 'pointer';
+            }
+
+            document.addEventListener('DOMContentLoaded', function () {
+                initStarfield();
+                initSatelliteGlobe();
+                bootstrapDailyChallenge();
+
+                document.getElementById('start-btn').addEventListener('click', startGame);
+                document.getElementById('play-again-btn').addEventListener('click', startGame);
+                document.getElementById('lock-btn').addEventListener('click', lockInGuess);
+
+                document.getElementById('copy-results-btn').addEventListener('click', function () {
+                    var btn = this;
+                    var text = buildShareText();
+                    copyTextToClipboard(text).then(function () {
+                        btn.classList.add('copied');
+                        btn.textContent = '✅ Copied!';
+                        setTimeout(function () {
+                            btn.classList.remove('copied');
+                            btn.textContent = '📋 Copy';
+                        }, 2400);
+                    });
+                });
+
+                document.getElementById('next-btn').addEventListener('click', function () {
+                    if (state.round >= state.totalRounds) {
+                        showSummary();
+                    } else {
+                        loadRound(state.round + 1);
+                    }
+                });
+
+                document.getElementById('zoom-in-btn').addEventListener('click', function () {
+                    if (state.map) state.map.zoomIn({ duration: 320 });
+                });
+
+                document.getElementById('zoom-out-btn').addEventListener('click', function () {
+                    if (state.map) state.map.zoomOut({ duration: 320 });
+                });
+
+                document.getElementById('reset-view-btn').addEventListener('click', function () {
+                    if (state.map) {
+                        state.map.flyTo({
+                            zoom: 1.75,
+                            pitch: 0,
+                            bearing: 0,
+                            duration: 900
+                        });
+                    }
+                });
+
+                window.addEventListener('keydown', function (e) {
+                    if (e.code === 'Space') {
+                        if (state.phase === 'PLAYING' && state.guessPin) {
+                            e.preventDefault();
+                            lockInGuess();
+                        } else if (state.phase === 'RESULT') {
+                            e.preventDefault();
+                            document.getElementById('next-btn').click();
+                        }
+                    }
+                });
+            });
+        })();
+    </script>
+</body>
+</html>
