@@ -1159,6 +1159,27 @@
                 return selectProgressiveDeck(pool, rng);
             }
 
+            function updateCitiesLayer(pool) {
+                if (!state.map || !state.mapReady) return;
+                try {
+                    var features = [];
+                    for (var i = 0; i < pool.length; i++) {
+                        var p = pool[i];
+                        features.push({
+                            type: 'Feature',
+                            properties: { city: p.city },
+                            geometry: { type: 'Point', coordinates: [p.lng, p.lat] }
+                        });
+                    }
+                    var src = state.map.getSource('cities');
+                    if (src && typeof src.setData === 'function') {
+                        src.setData({ type: 'FeatureCollection', features: features });
+                    }
+                } catch (e) {
+                    console.warn('updateCitiesLayer failed:', e);
+                }
+            }
+
             /* =================================================================
                3. LIVE WIKIDATA SPARQL FETCH WITH STATE/COUNTRY + LOCAL CACHE
                ================================================================= */
@@ -1512,21 +1533,69 @@
                                 source: 'countries',
                                 layout: {
                                     'text-field': ['get', 'name'],
-                                    'text-size': 12,
+                                    'text-size': 15,
                                     'text-font': ['Open Sans Semibold', 'Arial Unicode MS Regular'],
                                     'text-anchor': 'center',
                                     'text-allow-overlap': true,
-                                    'text-ignore-placement': true
+                                    'text-ignore-placement': true,
+                                    'text-pitch-alignment': 'viewport',
+                                    'text-rotation-alignment': 'viewport'
                                 },
                                 paint: {
-                                    'text-color': '#f8fafc',
+                                    'text-color': '#fde047',
                                     'text-halo-color': '#020617',
-                                    'text-halo-width': 3,
-                                    'text-halo-blur': 0.5,
-                                    'text-opacity': 0.92
+                                    'text-halo-width': 4,
+                                    'text-halo-blur': 1,
+                                    'text-opacity': 1
                                 },
                                 visibility: 'none'
                             });
+
+                            // Library city dots (shown only during result reveal)
+                            map.addSource('cities', {
+                                type: 'geojson',
+                                data: { type: 'FeatureCollection', features: [] }
+                            });
+
+                            map.addLayer({
+                                id: 'city-dot',
+                                type: 'circle',
+                                source: 'cities',
+                                paint: {
+                                    'circle-color': '#38bdf8',
+                                    'circle-radius': 3,
+                                    'circle-opacity': 0.55,
+                                    'circle-stroke-color': '#ffffff',
+                                    'circle-stroke-width': 1
+                                },
+                                visibility: 'none'
+                            });
+
+                            map.addLayer({
+                                id: 'city-label',
+                                type: 'symbol',
+                                source: 'cities',
+                                layout: {
+                                    'text-field': ['get', 'city'],
+                                    'text-size': 10,
+                                    'text-font': ['Open Sans Semibold', 'Arial Unicode MS Regular'],
+                                    'text-anchor': 'top',
+                                    'text-offset': [0, 1.2],
+                                    'text-allow-overlap': true,
+                                    'text-ignore-placement': true,
+                                    'text-pitch-alignment': 'viewport',
+                                    'text-rotation-alignment': 'viewport'
+                                },
+                                paint: {
+                                    'text-color': '#bae6fd',
+                                    'text-halo-color': '#020617',
+                                    'text-halo-width': 3,
+                                    'text-halo-blur': 0.5,
+                                    'text-opacity': 0.9
+                                },
+                                visibility: 'none'
+                            });
+                            if (state.pool) updateCitiesLayer(state.pool);
                         } catch (countryErr) {
                             console.warn('Country layer setup failed:', countryErr);
                         }
@@ -1818,6 +1887,8 @@
                         state.map.setLayoutProperty('country-fill', 'visibility', 'none');
                         state.map.setLayoutProperty('country-line', 'visibility', 'none');
                         state.map.setLayoutProperty('country-label', 'visibility', 'none');
+                        state.map.setLayoutProperty('city-dot', 'visibility', 'none');
+                        state.map.setLayoutProperty('city-label', 'visibility', 'none');
                     } catch (e) {}
                 }
 
@@ -1921,6 +1992,8 @@
                             state.map.setLayoutProperty('country-fill', 'visibility', 'visible');
                             state.map.setLayoutProperty('country-line', 'visibility', 'visible');
                             state.map.setLayoutProperty('country-label', 'visibility', 'visible');
+                            state.map.setLayoutProperty('city-dot', 'visibility', 'visible');
+                            state.map.setLayoutProperty('city-label', 'visibility', 'visible');
                         } catch (e) {}
                     }
 
@@ -2045,6 +2118,7 @@
                 var result = await fetchWorldCityPool();
                 state.pool = result.items;
                 state.deck = selectDailyProgressiveDeck(result.items, state.todayStr);
+                updateCitiesLayer(result.items);
 
                 if (result.source === 'live' || result.source === 'live-cached') {
                     poolStatus.textContent =
