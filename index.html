@@ -227,6 +227,41 @@
             transform: scale(0.98);
         }
 
+        .secondary-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            margin-top: 10px;
+            padding: 14px 28px;
+            border: 1px solid rgba(56, 189, 248, 0.5);
+            border-radius: 16px;
+            background: rgba(56, 189, 248, 0.10);
+            color: #38bdf8;
+            font-size: 16px;
+            font-weight: 900;
+            letter-spacing: 0.04em;
+            cursor: pointer;
+            box-shadow: 0 10px 26px rgba(56, 189, 248, 0.2);
+            transition: transform 0.14s ease, filter 0.14s ease, background 0.14s ease, border-color 0.14s ease;
+        }
+
+        .secondary-btn:hover {
+            filter: brightness(1.15);
+            transform: translateY(-1px);
+            background: rgba(56, 189, 248, 0.18);
+            border-color: rgba(56, 189, 248, 0.75);
+        }
+
+        .secondary-btn:active {
+            transform: scale(0.98);
+        }
+
+        .secondary-btn:disabled {
+            opacity: 0.55;
+            cursor: wait;
+        }
+
         /* =====================================================================
            4. MINIMAL IN-GAME HUD & PLACE PROMPT
            ===================================================================== */
@@ -667,10 +702,13 @@
             <div class="brand-mark">M</div>
             <h1>MAPTAG</h1>
             <div id="daily-date-badge" style="display:inline-block;margin-top:8px;padding:4px 12px;border-radius:999px;background:rgba(56,189,248,0.14);border:1px solid rgba(56,189,248,0.32);font-size:11px;font-weight:800;letter-spacing:0.06em;color:#38bdf8;text-transform:uppercase;">Daily Global Challenge</div>
-            <p>Spin the 3D satellite Earth and pinpoint today's 5 cities—progressing from global metropolises to expert regional gems.</p>
+            <p>Pinpoint 5 cities on the 3D satellite Earth—progressing from global metropolises to expert regional gems.</p>
             <div id="pool-status" style="margin-top:12px;font-size:12px;color:#94a3b8;">Syncing global city pool...</div>
             <div id="completed-banner" class="hidden" style="margin-top:14px;padding:12px;border-radius:14px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.32);font-size:13px;color:#a7f3d0;"></div>
-            <button type="button" id="start-btn" class="primary-btn" disabled style="opacity:0.65;cursor:wait;">Loading Today's Cities...</button>
+            <div id="mode-choice" style="margin-top:14px; display:flex; flex-direction:column; gap:10px;">
+                <button type="button" id="start-daily-btn" class="primary-btn" disabled style="opacity:0.65;cursor:wait;">Loading Today's Cities...</button>
+                <button type="button" id="start-training-btn" class="secondary-btn" disabled style="opacity:0.65;cursor:wait;">Training Mode — Random Places</button>
+            </div>
         </div>
     </div>
 
@@ -929,14 +967,14 @@
                 }
                 return item.city + ', ' + item.country;
             }
-
             /**
-             * Divides a population-sorted pool into 5 difficulty tiers (1=Easy -> 5=Expert)
-             * and deterministically selects 1 city from each tier using today's UTC seed,
-             * avoiding duplicate countries across the 5 rounds when possible.
+             * Builds a 5-round progressive deck (Easy → Expert) from a pool.
+             * Buckets by explicit tier when present, otherwise by population
+             * percentiles (mirroring the daily selector). Draws one city per
+             * tier via the given rng and avoids repeating countries across
+             * rounds when possible.
              */
-            function selectDailyProgressiveDeck(pool, dateStr) {
-                var rng = createMulberry32(hashStringFNV1a('MAPTAG-PROGRESSIVE-V2-' + dateStr));
+            function selectProgressiveDeck(pool, rng) {
                 var buckets = { 1: [], 2: [], 3: [], 4: [], 5: [] };
 
                 var hasExplicitTiers = pool.length > 0 && typeof pool[0].tier === 'number';
@@ -972,7 +1010,7 @@
                     var candidates = deterministicShuffle(buckets[tier] || [], rng);
                     var chosen = null;
 
-                    // First pass: pick a city whose country hasn't been used yet today
+                    // First pass: pick a city whose country hasn't been used yet
                     for (var c = 0; c < candidates.length; c++) {
                         var cand = candidates[c];
                         var key = (cand.city + '|' + cand.country).toLowerCase();
@@ -982,7 +1020,7 @@
                         }
                     }
 
-                    // Second pass: allow same country if all candidates in this tier share countries
+                    // Second pass: allow same country if all candidates share countries
                     if (!chosen) {
                         for (var c2 = 0; c2 < candidates.length; c2++) {
                             var cand2 = candidates[c2];
@@ -997,6 +1035,7 @@
                     if (chosen) {
                         usedCountries[chosen.country] = true;
                         usedCities[(chosen.city + '|' + chosen.country).toLowerCase()] = true;
+
                         deck.push({
                             city: chosen.city,
                             region: chosen.region || chosen.country,
@@ -1012,6 +1051,26 @@
                 }
 
                 return deck;
+            }
+
+            /**
+             * Daily challenge deck: deterministic, seeded by today's UTC date.
+             * Same cities for everyone on a given day.
+             */
+            function selectDailyProgressiveDeck(pool, dateStr) {
+                var rng = createMulberry32(hashStringFNV1a('MAPTAG-PROGRESSIVE-V2-' + dateStr));
+                return selectProgressiveDeck(pool, rng);
+            }
+
+            /**
+             * Training deck: picks random places from the entire pool while
+             * keeping the difficulty progression (Easy → Expert). Re-shuffles
+             * every call, so no two training runs are the same.
+             */
+            function selectTrainingDeck(pool) {
+                var seed = ((Date.now() * 1000) ^ (Math.random() * 0xFFFFFFFF)) >>> 0;
+                var rng = createMulberry32(seed);
+                return selectProgressiveDeck(pool, rng);
             }
 
             /* =================================================================
@@ -1157,11 +1216,13 @@
                ================================================================= */
             var state = {
                 phase: 'TITLE',
+                mode: 'DAILY',
                 todayStr: getTodayUTCString(),
                 round: 1,
                 totalRounds: 5,
                 totalScore: 0,
                 deck: [],
+                pool: null,
                 target: null,
                 history: [],
                 guessPin: null,
@@ -1328,6 +1389,60 @@
                                 'line-dasharray': [2, 2]
                             }
                         });
+
+                        // Country boundaries & names (shown only during result reveal)
+                        try {
+                            map.addSource('countries', {
+                                type: 'geojson',
+                                data: 'https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json'
+                            });
+
+                            map.addLayer({
+                                id: 'country-fill',
+                                type: 'fill',
+                                source: 'countries',
+                                paint: {
+                                    'fill-color': '#ffffff',
+                                    'fill-opacity': 0.05
+                                },
+                                visibility: 'none'
+                            });
+
+                            map.addLayer({
+                                id: 'country-line',
+                                type: 'line',
+                                source: 'countries',
+                                paint: {
+                                    'line-color': '#ffffff',
+                                    'line-width': 1,
+                                    'line-opacity': 0.25
+                                },
+                                visibility: 'none'
+                            });
+
+                            map.addLayer({
+                                id: 'country-label',
+                                type: 'symbol',
+                                source: 'countries',
+                                layout: {
+                                    'text-field': ['get', 'name'],
+                                    'text-size': 10,
+                                    'text-font': ['Open Sans Semibold', 'Arial Unicode MS Regular'],
+                                    'text-anchor': 'center',
+                                    'text-allow-overlap': false
+                                },
+                                paint: {
+                                    'text-color': '#ffffff',
+                                    'text-halo-color': '#020617',
+                                    'text-halo-width': 2,
+                                    'text-halo-blur': 0.5,
+                                    'text-opacity': 0.75
+                                },
+                                visibility: 'none'
+                            });
+                        } catch (countryErr) {
+                            console.warn('Country layer setup failed:', countryErr);
+                        }
 
                         startAmbientGlobeSpin();
                     });
@@ -1522,8 +1637,8 @@
 
             function buildShareText() {
                 var lines = [
-                    '🌍 MAPTAG • ' + state.todayStr,
-                    '🏆 Score: ' + state.totalScore.toLocaleString() + ' / 1000',
+                    '🌍 MAPTAG • ' + (state.mode === 'TRAINING' ? 'Training Mode' : state.todayStr),
+                    '🏆 Score: ' + state.totalScore.toLocaleString() + ' / 1,000',
                     ''
                 ];
                 for (var i = 0; i < state.history.length; i++) {
@@ -1589,7 +1704,9 @@
                 state.totalScore = 0;
                 state.history = [];
                 if (!state.deck || state.deck.length < state.totalRounds) {
-                    state.deck = selectDailyProgressiveDeck(FALLBACK_PLACES, state.todayStr);
+                    state.deck = state.mode === 'TRAINING'
+                        ? selectTrainingDeck(state.pool || FALLBACK_PLACES)
+                        : selectDailyProgressiveDeck(FALLBACK_PLACES, state.todayStr);
                 }
 
                 document.getElementById('title-overlay').classList.add('hidden');
@@ -1607,6 +1724,15 @@
                 state.guessPin = null;
 
                 clearRoundGraphics();
+
+                // Hide country boundaries/names until the next result reveal
+                if (state.map && state.mapReady) {
+                    try {
+                        state.map.setLayoutProperty('country-fill', 'visibility', 'none');
+                        state.map.setLayoutProperty('country-line', 'visibility', 'none');
+                        state.map.setLayoutProperty('country-label', 'visibility', 'none');
+                    } catch (e) {}
+                }
 
                 document.getElementById('hud-round').textContent = num;
                 document.getElementById('hud-score').textContent = state.totalScore.toLocaleString();
@@ -1702,6 +1828,15 @@
                         );
                     }
 
+                    // Show country boundaries & names for the revealed location
+                    if (state.map && state.mapReady) {
+                        try {
+                            state.map.setLayoutProperty('country-fill', 'visibility', 'visible');
+                            state.map.setLayoutProperty('country-line', 'visibility', 'visible');
+                            state.map.setLayoutProperty('country-label', 'visibility', 'visible');
+                        } catch (e) {}
+                    }
+
                     try {
                         var midLat = (state.guessPin.lat + state.target.lat) / 2;
                         var diffLng = ((state.target.lng - state.guessPin.lng + 540) % 360) - 180;
@@ -1730,7 +1865,9 @@
                 document.getElementById('res-emoji').textContent = emoji;
                 document.getElementById('res-pts').textContent = rating;
                 document.getElementById('next-btn').textContent =
-                    state.round >= state.totalRounds ? 'See Daily Summary' : 'Next Place';
+                    state.round >= state.totalRounds
+                        ? (state.mode === 'TRAINING' ? 'See Training Summary' : 'See Daily Summary')
+                        : 'Next Place';
 
                 document.getElementById('result-card').classList.remove('hidden');
 
@@ -1764,20 +1901,23 @@
                 state.totalScore = computeWeightedTotal(state.history);
 
                 try {
-                    localStorage.setItem(DAILY_RESULT_PREFIX + state.todayStr, JSON.stringify({
-                        score: state.totalScore,
-                        history: state.history
-                    }));
+                    if (state.mode === 'DAILY') {
+                        localStorage.setItem(DAILY_RESULT_PREFIX + state.todayStr, JSON.stringify({
+                            score: state.totalScore,
+                            history: state.history
+                        }));
+                    }
                 } catch (e) {}
 
                 document.getElementById('final-rank-label').textContent =
-                    getExpeditionTitle(state.totalScore);
+                    state.mode === 'TRAINING' ? 'Training Complete' : getExpeditionTitle(state.totalScore);
                 document.getElementById('final-score').textContent = state.totalScore.toLocaleString();
                 var totalKm = state.history.reduce(function (sum, item) { return sum + item.distKm; }, 0);
                 var avgKm = totalKm / Math.max(1, state.history.length);
                 document.getElementById('final-avg').textContent =
-                    'Daily (' + state.todayStr + ' UTC) • Avg distance: ' + formatDistance(avgKm) +
-                    ' • Next in ' + getNextUTCCountdown();
+                    (state.mode === 'TRAINING' ? 'Training' : 'Daily (' + state.todayStr + ' UTC)') +
+                    ' • Avg distance: ' + formatDistance(avgKm) +
+                    (state.mode === 'TRAINING' ? '' : ' • Next in ' + getNextUTCCountdown());
 
                 var html = '';
                 for (var i = 0; i < state.history.length; i++) {
@@ -1809,12 +1949,14 @@
             async function bootstrapDailyChallenge() {
                 var dateBadge = document.getElementById('daily-date-badge');
                 var poolStatus = document.getElementById('pool-status');
-                var startBtn = document.getElementById('start-btn');
+                var startDailyBtn = document.getElementById('start-daily-btn');
+                var startTrainingBtn = document.getElementById('start-training-btn');
                 var completedBanner = document.getElementById('completed-banner');
 
                 dateBadge.textContent = 'Daily Challenge • ' + state.todayStr + ' (UTC)';
 
                 var result = await fetchWorldCityPool();
+                state.pool = result.items;
                 state.deck = selectDailyProgressiveDeck(result.items, state.todayStr);
 
                 if (result.source === 'live' || result.source === 'live-cached') {
@@ -1835,20 +1977,25 @@
                             completedBanner.textContent =
                                 'Completed today: ' + prev.score.toLocaleString() +
                                 ' / 1,000 pts • New cities in ' + getNextUTCCountdown() + ' UTC';
-                            startBtn.textContent = 'Replay Today\'s 5 Cities';
+                            startDailyBtn.textContent = 'Replay Today\'s 5 Cities';
                         } else {
-                            startBtn.textContent = 'Play Today\'s Challenge';
+                            startDailyBtn.textContent = 'Play Today\'s Challenge';
                         }
                     } else {
-                        startBtn.textContent = 'Play Today\'s Challenge';
+                        startDailyBtn.textContent = 'Play Today\'s Challenge';
                     }
                 } catch (e) {
-                    startBtn.textContent = 'Play Today\'s Challenge';
+                    startDailyBtn.textContent = 'Play Today\'s Challenge';
                 }
 
-                startBtn.disabled = false;
-                startBtn.style.opacity = '1';
-                startBtn.style.cursor = 'pointer';
+                startDailyBtn.disabled = false;
+                startDailyBtn.style.opacity = '1';
+                startDailyBtn.style.cursor = 'pointer';
+
+                startTrainingBtn.disabled = false;
+                startTrainingBtn.style.opacity = '1';
+                startTrainingBtn.style.cursor = 'pointer';
+                startTrainingBtn.textContent = 'Training Mode — Random Places';
             }
 
             document.addEventListener('DOMContentLoaded', function () {
@@ -1856,8 +2003,21 @@
                 initSatelliteGlobe();
                 bootstrapDailyChallenge();
 
-                document.getElementById('start-btn').addEventListener('click', startGame);
-                document.getElementById('play-again-btn').addEventListener('click', startGame);
+                document.getElementById('start-daily-btn').addEventListener('click', function () {
+                    state.mode = 'DAILY';
+                    startGame();
+                });
+                document.getElementById('start-training-btn').addEventListener('click', function () {
+                    state.mode = 'TRAINING';
+                    state.deck = selectTrainingDeck(state.pool || FALLBACK_PLACES);
+                    startGame();
+                });
+                document.getElementById('play-again-btn').addEventListener('click', function () {
+                    if (state.mode === 'TRAINING') {
+                        state.deck = selectTrainingDeck(state.pool || FALLBACK_PLACES);
+                    }
+                    startGame();
+                });
                 document.getElementById('lock-btn').addEventListener('click', lockInGuess);
 
                 document.getElementById('copy-results-btn').addEventListener('click', function () {
