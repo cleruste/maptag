@@ -1180,6 +1180,20 @@
                 }
             }
 
+            var REVEAL_LAYER_IDS = ['country-fill', 'country-line', 'country-label', 'city-dot', 'city-label'];
+
+            function setRevealLayersVisible(visible) {
+                if (!state.map || !state.mapReady) return;
+                var v = visible ? 'visible' : 'none';
+                for (var i = 0; i < REVEAL_LAYER_IDS.length; i++) {
+                    try {
+                        if (state.map.getLayer(REVEAL_LAYER_IDS[i])) {
+                            state.map.setLayoutProperty(REVEAL_LAYER_IDS[i], 'visibility', v);
+                        }
+                    } catch (e) {}
+                }
+            }
+
             /* =================================================================
                3. LIVE WIKIDATA SPARQL FETCH WITH STATE/COUNTRY + LOCAL CACHE
                ================================================================= */
@@ -1535,7 +1549,7 @@
                                 layout: {
                                     'text-field': ['get', 'name'],
                                     'text-size': 18,
-                                    'text-font': ['Open Sans Bold', 'Arial Unicode MS Regular'],
+                                    'text-font': ['Noto Sans Bold', 'Noto Sans Regular'],
                                     'text-anchor': 'center',
                                     'text-allow-overlap': true,
                                     'text-ignore-placement': true
@@ -1577,7 +1591,7 @@
                                 layout: {
                                     'text-field': ['get', 'city'],
                                     'text-size': 12,
-                                    'text-font': ['Open Sans Bold', 'Arial Unicode MS Regular'],
+                                    'text-font': ['Noto Sans Bold', 'Noto Sans Regular'],
                                     'text-anchor': 'top',
                                     'text-offset': [0, 1.4],
                                     'text-allow-overlap': true,
@@ -1878,16 +1892,8 @@
 
                 clearRoundGraphics();
 
-                // Hide country boundaries/names until the next result reveal
-                if (state.map && state.mapReady) {
-                    try {
-                        state.map.setLayoutProperty('country-fill', 'visibility', 'none');
-                        state.map.setLayoutProperty('country-line', 'visibility', 'none');
-                        state.map.setLayoutProperty('country-label', 'visibility', 'none');
-                        state.map.setLayoutProperty('city-dot', 'visibility', 'none');
-                        state.map.setLayoutProperty('city-label', 'visibility', 'none');
-                    } catch (e) {}
-                }
+                // Hide country boundaries/names/cities until the next result reveal
+                setRevealLayersVisible(false);
 
                 document.getElementById('hud-round').textContent = num;
                 document.getElementById('hud-score').textContent = state.totalScore.toLocaleString();
@@ -1983,16 +1989,8 @@
                         );
                     }
 
-                    // Show country boundaries & names for the revealed location
-                    if (state.map && state.mapReady) {
-                        try {
-                            state.map.setLayoutProperty('country-fill', 'visibility', 'visible');
-                            state.map.setLayoutProperty('country-line', 'visibility', 'visible');
-                            state.map.setLayoutProperty('country-label', 'visibility', 'visible');
-                            state.map.setLayoutProperty('city-dot', 'visibility', 'visible');
-                            state.map.setLayoutProperty('city-label', 'visibility', 'visible');
-                        } catch (e) {}
-                    }
+                    // Show country boundaries, names and library city dots on reveal
+                    setRevealLayersVisible(true);
 
                     try {
                         var midLat = (state.guessPin.lat + state.target.lat) / 2;
